@@ -70,13 +70,26 @@ ldap_uri = ldaps://${authentik.company}:636
 
 ldap_schema = rfc2307bis
 ldap_search_base = ${ldap.baseDN}
-ldap_user_search_base = ou=users,${ldap.baseDN}
+
 ldap_group_search_base = ${ldap.baseDN}
 
+# User search settings
+ldap_user_search_base = ou=users,${ldap.baseDN}
 ldap_user_object_class = user
 ldap_user_name = cn
+ldap_user_uid_number = uidNumber
+ldap_user_gid_number = gidNumber
+ldap_user_home_directory = homeDirectory
+ldap_user_shell = loginShell
+
+# Group search settings
 ldap_group_object_class = group
 ldap_group_name = cn
+ldap_group_gid_number = gidNumber
+ldap_group_member = member
+ldap_user_member_of = memberOf
+ldap_group_nesting_level = 10
+ldap_ignore_unreadable_references = true
 
 # Optionally, filter logins to only a specific group
 #ldap_access_order = filter
@@ -103,6 +116,60 @@ Please note that by default, sssd returns all user accounts; active and disabled
 ```
 
 :::
+
+## PAM configuration
+
+The integration of SSSD in PAM may differ between different linux distribution. In case of arch based systems you can edit `/etc/pam.d/system-auth`:
+
+```ini
+auth       required                    pam_faillock.so      preauth
+# Optionally use requisite above if you do not want to prompt for the password
+# on locked accounts.
+-auth      [success=3 default=ignore]  			       pam_systemd_home.so
+auth       [success=2 default=ignore]		  	       pam_sss.so 	        forward_pass
+auth       [success=1 default=bad]     			       pam_unix.so          try_first_pass nullok
+...
+
+-account   [success=2 default=ignore]  pam_systemd_home.so
+account    [success=1 default=ignore user_unknown=ignore] pam_sss.so
+account    required                    pam_unix.so
+...
+
+-password  [success=2 default=ignore]  pam_systemd_home.so
+password   [success=1 default=ignore]  pam_sss.so 	        use_first_pass
+password   required                    pam_unix.so          try_first_pass nullok shadow
+
+...
+
+session    required      	           pam_mkhomedir.so skel=/etc/skel/ umask=0077
+-session   optional                    pam_systemd_home.so
+session    required                    pam_limits.so
+session    required                    pam_unix.so
+session    optional 		           pam_sss.so
+...
+```
+This example configuration ensures that local accounts are still used with preference if they are existing. In addition a home directory is generated
+if an ldap user logs in for the first time on the PC.
+
+## NSS configuration
+
+SSD can also be used to provide user and group information to NSS. In order to make this work, the following modifications to NSS are necessary:
+
+```ini
+
+# Name Service Switch configuration file.
+# See nsswitch.conf(5) for details.
+
+passwd: files systemd sss
+group: files [SUCCESS=merge] systemd sss
+shadow: files systemd sss
+
+...
+
+sudoers: files sss
+
+```
+
 
 ## Resources
 
